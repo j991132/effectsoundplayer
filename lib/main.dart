@@ -8,7 +8,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
 import 'dart:convert';
-
+//첫 업로드
 void main() {
   runApp(MyApp());
 }
