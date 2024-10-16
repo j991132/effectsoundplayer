@@ -2,11 +2,11 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:auto_size_text/auto_size_text.dart';
 import 'dart:convert';
 
 void main() {
@@ -19,16 +19,10 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Sound Effect App',
       theme: ThemeData(
-        primarySwatch: Colors.deepPurple,
+        primarySwatch: Colors.teal,
         visualDensity: VisualDensity.adaptivePlatformDensity,
         brightness: Brightness.light,
       ),
-      darkTheme: ThemeData(
-        primarySwatch: Colors.deepPurple,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-        brightness: Brightness.dark,
-      ),
-      themeMode: ThemeMode.system,
       home: SoundEffectHomePage(),
     );
   }
@@ -40,14 +34,16 @@ class SoundEffect {
   final String? path;
   final Uint8List? bytes;
   int tabIndex;
+  final DateTime addedDate;
 
   SoundEffect({
     required this.id,
     required this.name,
     this.path,
     this.bytes,
-    required this.tabIndex
-  });
+    required this.tabIndex,
+    DateTime? addedDate,
+  }) : this.addedDate = addedDate ?? DateTime.now();
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -55,6 +51,7 @@ class SoundEffect {
     'path': path,
     'bytes': bytes != null ? base64Encode(bytes!) : null,
     'tabIndex': tabIndex,
+    'addedDate': addedDate.toIso8601String(),
   };
 
   factory SoundEffect.fromJson(Map<String, dynamic> json) => SoundEffect(
@@ -63,6 +60,7 @@ class SoundEffect {
     path: json['path'],
     bytes: json['bytes'] != null ? base64Decode(json['bytes']) : null,
     tabIndex: json['tabIndex'],
+    addedDate: DateTime.parse(json['addedDate']),
   );
 }
 
@@ -78,7 +76,13 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage> with SingleTi
   late AudioPlayer audioPlayer;
   TextEditingController searchController = TextEditingController();
   String? currentlyPlayingSoundId;
-
+  List<Color> tabColors = [
+    Colors.teal,
+    Colors.blue,
+    Colors.purple,
+    Colors.orange,
+    Colors.pink,
+  ];
   @override
   void initState() {
     super.initState();
@@ -172,7 +176,7 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage> with SingleTi
           name: name,
           path: kIsWeb ? null : result.files.single.path,
           bytes: kIsWeb ? result.files.single.bytes : null,
-          tabIndex: _tabController.index == 0 ? 1 : _tabController.index,
+          tabIndex: _tabController.index,
         );
         setState(() {
           sounds.add(newSound);
@@ -183,8 +187,8 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage> with SingleTi
   }
 
   void editSound(SoundEffect sound) async {
-    String newName = await _showNameInputDialog();
-    if (newName.isNotEmpty) {
+    String newName = await _showNameInputDialog(initialValue: sound.name);
+    if (newName.isNotEmpty && newName != sound.name) {
       setState(() {
         sound.name = newName;
       });
@@ -207,6 +211,13 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage> with SingleTi
         SnackBar(content: Text('Sharing is not available on web')),
       );
     }
+  }
+
+  void moveSound(SoundEffect sound, int newTabIndex) async {
+    setState(() {
+      sound.tabIndex = newTabIndex;
+    });
+    await saveSounds();
   }
 
   List<SoundEffect> getFilteredSounds() {
@@ -237,6 +248,37 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage> with SingleTi
       });
       await saveSounds();
     }
+  }
+
+  void deleteTab(int index) async {
+    if (index == 0) return; // Don't allow deleting the "All" tab
+    setState(() {
+      tabs.removeAt(index);
+      sounds = sounds.map((sound) {
+        if (sound.tabIndex == index) {
+          return SoundEffect(
+            id: sound.id,
+            name: sound.name,
+            path: sound.path,
+            bytes: sound.bytes,
+            tabIndex: 1, // Move to the first tab
+            addedDate: sound.addedDate,
+          );
+        } else if (sound.tabIndex > index) {
+          return SoundEffect(
+            id: sound.id,
+            name: sound.name,
+            path: sound.path,
+            bytes: sound.bytes,
+            tabIndex: sound.tabIndex - 1, // Decrease tab index
+            addedDate: sound.addedDate,
+          );
+        }
+        return sound;
+      }).toList();
+      _tabController = TabController(length: tabs.length, vsync: this);
+    });
+    await saveSounds();
   }
 
   Future<String> _showNameInputDialog({String? initialValue}) async {
@@ -296,6 +338,14 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage> with SingleTi
                 },
               ),
               ListTile(
+                leading: Icon(Icons.folder),
+                title: Text('Move to Tab'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showMoveToTabDialog(sound);
+                },
+              ),
+              ListTile(
                 leading: Icon(Icons.share),
                 title: Text('Share'),
                 onTap: () {
@@ -318,89 +368,205 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage> with SingleTi
     );
   }
 
+  void _showMoveToTabDialog(SoundEffect sound) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Move to Tab'),
+          content: SingleChildScrollView(
+            child: ListBody(
+              children: tabs.asMap().entries.map((entry) {
+                int index = entry.key;
+                String tabName = entry.value;
+                if (index == 0) return Container(); // Skip "All" tab
+                return ListTile(
+                  title: Text(tabName),
+                  onTap: () {
+                    moveSound(sound, index);
+                    Navigator.of(context).pop();
+                  },
+                );
+              }).toList(),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Sound Effect App'),
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: tabs.map((String name) => Tab(
-            child: GestureDetector(
-              onLongPress: () => editTab(tabs.indexOf(name)),
-              child: Text(name),
-            ),
-          )).toList(),
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Colors.teal.shade100, Colors.blue.shade100],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: List.generate(tabs.length, (index) {
-          return Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: TextField(
-                  controller: searchController,
-                  decoration: InputDecoration(
-                    labelText: 'Search sounds',
-                    suffixIcon: Icon(Icons.search),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                  ),
-                  onChanged: (_) => setState(() {}),
-                ),
-              ),
-              Expanded(
-                child: GridView.builder(
-                  padding: EdgeInsets.all(8),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    childAspectRatio: 1,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                  ),
-                  itemCount: getFilteredSounds().length,
-                  itemBuilder: (context, soundIndex) {
-                    final sound = getFilteredSounds()[soundIndex];
-                    return Card(
-                      elevation: 4,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(15),
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          title: Text('Sound Effect App'),
+          backgroundColor: Colors.teal.withOpacity(0.7),
+          bottom: PreferredSize(
+            preferredSize: Size.fromHeight(48),
+            child: TabBar(
+              controller: _tabController,
+              isScrollable: false,
+              tabs: tabs.asMap().entries.map((entry) {
+                return Flex(
+                  direction: Axis.horizontal,
+                  children: [
+                    Expanded(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: tabColors[entry.key],
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        margin: EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+                        padding: EdgeInsets.symmetric(vertical: 4),
+                        alignment: Alignment.center,
+                        child: Tab(
+                          child: Text(
+                            entry.value,
+                            style: TextStyle(color: Colors.black),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
                       ),
-                      child: InkWell(
-                        onTap: () => playSound(sound),
-                        onLongPress: () => _showSoundOptions(sound),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                                currentlyPlayingSoundId == sound.id ? Icons.pause : Icons.play_arrow,
-                                size: 40,
-                                color: Theme.of(context).primaryColor
-                            ),
-                            SizedBox(height: 8),
-                            Text(
-                              sound.name,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                );
+              }).toList(),
+              labelColor: Colors.black,
+              unselectedLabelColor: Colors.black54,
+              indicator: BoxDecoration(
+                color: Colors.white.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              indicatorSize: TabBarIndicatorSize.tab,
+              indicatorPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+            ),
+          ),
+        ),
+        body: TabBarView(
+          controller: _tabController,
+          children: List.generate(tabs.length, (index) {
+            final filteredSounds = index == 0 ? sounds : sounds.where((sound) => sound.tabIndex == index).toList();
+            return Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: TextField(
+                    controller: searchController,
+                    decoration: InputDecoration(
+                      labelText: 'Search sounds',
+                      suffixIcon: Icon(Icons.search),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      filled: true,
+                      fillColor: Colors.white.withOpacity(0.7),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+                Expanded(
+                  child: filteredSounds.isEmpty
+                      ? Center(child: Text('No sounds in this tab'))
+                      : GridView.builder(
+                    padding: EdgeInsets.all(8),
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      childAspectRatio: 1,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
+                    ),
+                    itemCount: filteredSounds.length,
+                    itemBuilder: (context, soundIndex) {
+                      final sound = filteredSounds[soundIndex];
+                      final isPlaying = currentlyPlayingSoundId == sound.id;
+                      return AnimatedContainer(
+                        duration: Duration(milliseconds: 300),
+                        curve: Curves.easeInOut,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: isPlaying
+                                ? [Colors.teal.shade300, Colors.blue.shade300]
+                                : [Colors.white, Colors.grey.shade100],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(15),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.grey.withOpacity(0.5),
+                              spreadRadius: isPlaying ? 3 : 1,
+                              blurRadius: isPlaying ? 7 : 3,
+                              offset: Offset(0, 3),
                             ),
                           ],
                         ),
-                      ),
-                    );
-                  },
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () => playSound(sound),
+                            onLongPress: () => _showSoundOptions(sound),
+                            borderRadius: BorderRadius.circular(15),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Expanded(
+                                  flex: 3,
+                                  child: FittedBox(
+                                    fit: BoxFit.contain,
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(8.0),
+                                      child: Icon(
+                                        isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                                        color: isPlaying ? Colors.white : tabColors[index],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 1,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                                    child: AutoSizeText(
+                                      sound.name,
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: isPlaying ? Colors.white : Colors.black87,
+                                      ),
+                                      maxLines: 1,
+                                      minFontSize: 8,
+                                      maxFontSize: 14,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                 ),
-              ),
-            ],
-          );
-        }),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: addSound,
-        child: Icon(Icons.add),
-        tooltip: 'Add new sound',
+              ],
+            );
+          }),
+        ),
+        floatingActionButton: FloatingActionButton(
+          onPressed: addSound,
+          child: Icon(Icons.add),
+          tooltip: 'Add new sound',
+          backgroundColor: Colors.teal,
+        ),
       ),
     );
   }

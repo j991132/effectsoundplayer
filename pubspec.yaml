@@ -42,6 +42,7 @@ dependencies:
   audio_waveforms: ^1.0.0
   flutter_ffmpeg: ^0.4.2
   share_plus: ^6.3.0
+  auto_size_text: ^3.0.0
 
 dev_dependencies:
   flutter_test:
