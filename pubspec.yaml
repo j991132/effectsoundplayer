@@ -43,6 +43,9 @@ dependencies:
   flutter_ffmpeg: ^0.4.2
   share_plus: ^6.3.0
   auto_size_text: ^3.0.0
+  wakelock: ^0.6.2
+  youtube_explode_dart: ^1.12.4
+  permission_handler: ^10.4.3
 
 dev_dependencies:
   flutter_test:

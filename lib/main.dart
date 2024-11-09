@@ -8,8 +8,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:auto_size_text/auto_size_text.dart';
 import 'dart:convert';
+import 'package:wakelock/wakelock.dart';
+import 'youtube_editor.dart';
+
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();  // 이 줄이 없다면 추가
+  Wakelock.enable();
   runApp(MyApp());
 }
 
@@ -71,6 +76,7 @@ class SoundEffectHomePage extends StatefulWidget {
 
 class _SoundEffectHomePageState extends State<SoundEffectHomePage> with SingleTickerProviderStateMixin {
   List<SoundEffect> sounds = [];
+  int gridColumns = 2;  // 기본값 2
   List<String> tabs = ['All', 'Tab 1', 'Tab 2', 'Tab 3', 'Tab 4'];
   late TabController _tabController;
   late AudioPlayer audioPlayer;
@@ -136,25 +142,33 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage> with SingleTi
 
   Future<void> playSound(SoundEffect sound) async {
     try {
+      // 현재 재생 중인 효과음을 다시 눌렀을 경우
       if (currentlyPlayingSoundId == sound.id) {
         await audioPlayer.stop();
         setState(() {
           currentlyPlayingSoundId = null;
         });
-      } else {
-        if (kIsWeb) {
-          if (sound.bytes != null) {
-            await audioPlayer.play(BytesSource(sound.bytes!));
-          }
-        } else {
-          if (sound.path != null) {
-            await audioPlayer.play(DeviceFileSource(sound.path!));
-          }
-        }
-        setState(() {
-          currentlyPlayingSoundId = sound.id;
-        });
+        return;
       }
+
+      // 다른 효과음이 재생 중이었다면 중지
+      if (currentlyPlayingSoundId != null) {
+        await audioPlayer.stop();
+      }
+
+      // 새로운 효과음 재생
+      if (kIsWeb) {
+        if (sound.bytes != null) {
+          await audioPlayer.play(BytesSource(sound.bytes!));
+        }
+      } else {
+        if (sound.path != null) {
+          await audioPlayer.play(DeviceFileSource(sound.path!));
+        }
+      }
+      setState(() {
+        currentlyPlayingSoundId = sound.id;
+      });
     } catch (e) {
       print('Error playing sound: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -410,6 +424,33 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage> with SingleTi
         appBar: AppBar(
           title: Text('Sound Effect App'),
           backgroundColor: Colors.teal.withOpacity(0.7),
+
+          actions: [
+            PopupMenuButton<int>(
+              icon: Icon(Icons.grid_view),
+              tooltip: 'Grid columns',
+              onSelected: (int count) {
+                setState(() {
+                  gridColumns = count;
+                });
+              },
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 2,
+                  child: Text('2 줄'),
+                ),
+                PopupMenuItem(
+                  value: 3,
+                  child: Text('3 줄'),
+                ),
+                PopupMenuItem(
+                  value: 4,
+                  child: Text('4 줄'),
+                ),
+              ],
+            ),
+          ],
+
           bottom: PreferredSize(
             preferredSize: Size.fromHeight(48),
             child: TabBar(
@@ -479,7 +520,7 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage> with SingleTi
                       : GridView.builder(
                     padding: EdgeInsets.all(8),
                     gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
+                      crossAxisCount: gridColumns,
                       childAspectRatio: 1,
                       crossAxisSpacing: 10,
                       mainAxisSpacing: 10,
@@ -561,11 +602,47 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage> with SingleTi
             );
           }),
         ),
-        floatingActionButton: FloatingActionButton(
-          onPressed: addSound,
-          child: Icon(Icons.add),
-          tooltip: 'Add new sound',
-          backgroundColor: Colors.teal,
+        floatingActionButton: Column(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            if (!kIsWeb) // 웹이 아닌 경우에만 YouTube 버튼 표시
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8.0),
+                child: FloatingActionButton(
+                  heroTag: 'youtube',
+                  onPressed: () {
+                    showModalBottomSheet(
+                      context: context,
+                      isScrollControlled: true,
+                      builder: (context) => SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.9,
+                        child: YoutubeEditor(
+                          onSoundAdded: (name, path) {
+                            final newSound = SoundEffect(
+                              id: DateTime.now().millisecondsSinceEpoch.toString(),
+                              name: name,
+                              path: path,
+                              tabIndex: _tabController.index == 0 ? 1 : _tabController.index,
+                            );
+                            setState(() {
+                              sounds.add(newSound);
+                            });
+                            saveSounds();
+                          },
+                        ),
+                      ),
+                    );
+                  },
+                  child: Icon(Icons.youtube_searched_for),
+                ),
+              ),
+            FloatingActionButton(
+              heroTag: 'add',
+              onPressed: addSound,
+              child: Icon(Icons.add),
+              tooltip: 'Add new sound',
+            ),
+          ],
         ),
       ),
     );
