@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:effectsoundplayer/audio_editor.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -9,10 +10,10 @@ import 'package:share_plus/share_plus.dart';
 import 'package:auto_size_text/auto_size_text.dart';
 import 'dart:convert';
 import 'package:wakelock/wakelock.dart';
-import 'youtube_editor.dart';
 
 
-void main() {
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();  // 이 줄이 없다면 추가
   Wakelock.enable();
   runApp(MyApp());
@@ -605,37 +606,35 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage> with SingleTi
         floatingActionButton: Column(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            if (!kIsWeb) // 웹이 아닌 경우에만 YouTube 버튼 표시
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8.0),
-                child: FloatingActionButton(
-                  heroTag: 'youtube',
-                  onPressed: () {
-                    showModalBottomSheet(
-                      context: context,
-                      isScrollControlled: true,
-                      builder: (context) => SizedBox(
-                        height: MediaQuery.of(context).size.height * 0.9,
-                        child: YoutubeEditor(
-                          onSoundAdded: (name, path) {
-                            final newSound = SoundEffect(
-                              id: DateTime.now().millisecondsSinceEpoch.toString(),
-                              name: name,
-                              path: path,
-                              tabIndex: _tabController.index == 0 ? 1 : _tabController.index,
-                            );
-                            setState(() {
-                              sounds.add(newSound);
-                            });
-                            saveSounds();
-                          },
-                        ),
-                      ),
-                    );
-                  },
-                  child: Icon(Icons.youtube_searched_for),
-                ),
-              ),
+            FloatingActionButton(
+              heroTag: 'edit',
+              onPressed: () {
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  builder: (context) => SizedBox(
+                    height: MediaQuery.of(context).size.height * 0.9,
+                    child: AudioEditor(
+                      onSoundAdded: (name, path) {
+                        final newSound = SoundEffect(
+                          id: DateTime.now().millisecondsSinceEpoch.toString(),
+                          name: name,
+                          path: path,
+                          tabIndex: _tabController.index == 0 ? 1 : _tabController.index,
+                        );
+                        setState(() {
+                          sounds.add(newSound);
+                        });
+                        saveSounds();
+                      },
+                    ),
+                  ),
+                );
+              },
+              child: Icon(Icons.edit),
+              tooltip: 'Edit Audio',
+            ),
+            SizedBox(height: 16),
             FloatingActionButton(
               heroTag: 'add',
               onPressed: addSound,
