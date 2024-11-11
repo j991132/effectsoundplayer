@@ -6,6 +6,8 @@ import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import 'main.dart';
+
 class AudioEditor extends StatefulWidget {
   final Function(String name, String path) onSoundAdded;
 
@@ -24,6 +26,18 @@ class _AudioEditorState extends State<AudioEditor> {
   double _endTime = 30;
   double _maxDuration = 30;
   String _audioName = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _audioPlayer.playerStateStream.listen((state) {
+      if (state.processingState == ProcessingState.completed) {
+        setState(() {
+          _isPlaying = false;
+        });
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -72,27 +86,32 @@ class _AudioEditorState extends State<AudioEditor> {
     try {
       if (_isPlaying) {
         await _audioPlayer.pause();
-      } else {
-        await _audioPlayer.setClip(
-          start: Duration(seconds: _startTime.toInt()),
-          end: Duration(seconds: _endTime.toInt()),
-        );
-        await _audioPlayer.play();
+        setState(() {
+          _isPlaying = false;
+        });
+        return;
       }
 
-      setState(() {
-        _isPlaying = !_isPlaying;
-      });
+      await _audioPlayer.setFilePath(_audioPath!);
 
-      _audioPlayer.playerStateStream.listen((state) {
-        if (state.processingState == ProcessingState.completed) {
-          setState(() {
-            _isPlaying = false;
-          });
-        }
+      // 끝 시간에 약간의 여유를 추가
+      final endTime = _endTime + 1;  // 0.1초의 여유 추가
+
+      await _audioPlayer.setClip(
+        start: Duration(milliseconds: (_startTime * 1000).toInt()),
+        end: Duration(milliseconds: (endTime * 1000).toInt()),
+      );
+
+      setState(() {
+        _isPlaying = true;
       });
+      await _audioPlayer.play();
+
     } catch (e) {
       print('Error playing audio: $e');
+      setState(() {
+        _isPlaying = false;
+      });
     }
   }
 
@@ -143,32 +162,35 @@ class _AudioEditorState extends State<AudioEditor> {
         _isLoading = true;
       });
 
-      var status = await Permission.storage.request();
-      if (!status.isGranted) {
-        throw 'Storage permission denied';
+      // 권한 확인
+      if (!PermissionManager().hasPermission) {
+        final hasPermission = await PermissionManager().checkAndRequestPermissions();
+        if (!hasPermission) {
+          throw '오디오 파일 저장을 위해 권한이 필요합니다.';
+        }
       }
 
       final dir = await getTemporaryDirectory();
       final tempWavPath = '${dir.path}/temp_${DateTime.now().millisecondsSinceEpoch}.wav';
-      final editedPath = '${dir.path}/edited_${DateTime.now().millisecondsSinceEpoch}.aac';  // aac 형식으로 변경
+      final editedPath = '${dir.path}/edited_${DateTime.now().millisecondsSinceEpoch}.aac';
 
-      // FFmpeg 명령어를 두 단계로 나누어 실행
+      // FFmpeg 명령어
       final FlutterFFmpeg flutterFFmpeg = FlutterFFmpeg();
 
-      // 1단계: FLAC를 WAV로 변환
+      // WAV 변환
       int rc = await flutterFFmpeg.execute(
           '-i "$_audioPath" -acodec pcm_s16le "$tempWavPath"'
       );
 
       if (rc != 0) throw 'Failed to convert to WAV';
 
-      // 2단계: WAV 파일을 자르고 AAC로 변환
+      // 편집 및 AAC 변환
       rc = await flutterFFmpeg.execute(
-          '-i "$tempWavPath" -ss ${_startTime.toInt()} -t ${(_endTime - _startTime).toInt()} '
-              '-c:a aac -b:a 192k "$editedPath"'
+          '-i "$tempWavPath" -ss ${_startTime.toStringAsFixed(3)} -t ${(_endTime - _startTime + 1).toStringAsFixed(3)} '
+              '-c:a aac -b:a 192k -avoid_negative_ts make_zero "$editedPath"'
       );
 
-      // 임시 WAV 파일 삭제
+      // 임시 파일 정리
       try {
         await File(tempWavPath).delete();
       } catch (e) {
@@ -181,10 +203,14 @@ class _AudioEditorState extends State<AudioEditor> {
       } else {
         throw 'Failed to trim audio';
       }
+
     } catch (e) {
       print('Error saving audio: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to save edited audio')),
+        SnackBar(
+          content: Text('Failed to save audio: $e'),
+          duration: Duration(seconds: 3),
+        ),
       );
     } finally {
       setState(() {
@@ -221,10 +247,10 @@ class _AudioEditorState extends State<AudioEditor> {
               RangeSlider(
                 values: RangeValues(_startTime, _endTime),
                 max: _maxDuration,
-                divisions: _maxDuration.toInt(),
+                divisions: (_maxDuration * 10).toInt(), // 0.1초 단위로 변경
                 labels: RangeLabels(
-                  _startTime.toInt().toString(),
-                  _endTime.toInt().toString(),
+                  _startTime.toStringAsFixed(1),  // 소수점 1자리까지 표시
+                  _endTime.toStringAsFixed(1),
                 ),
                 onChanged: (RangeValues values) {
                   setState(() {

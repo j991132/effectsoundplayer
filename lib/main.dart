@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:auto_size_text/auto_size_text.dart';
@@ -15,6 +16,13 @@ import 'package:wakelock/wakelock.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();  // 이 줄이 없다면 추가
+  if (Platform.isAndroid) {
+    // 앱 시작 시 권한 요청
+    await Permission.storage.request();
+    await Permission.manageExternalStorage.request();
+  }
+  // 권한 체크
+  await PermissionManager().checkAndRequestPermissions();
   Wakelock.enable();
   runApp(MyApp());
 }
@@ -32,6 +40,70 @@ class MyApp extends StatelessWidget {
       home: SoundEffectHomePage(),
     );
   }
+}
+
+// main.dart 상단에 추가
+class PermissionManager {
+  static final PermissionManager _instance = PermissionManager._internal();
+  factory PermissionManager() => _instance;
+  PermissionManager._internal();
+
+  bool _hasPermission = false;
+
+  bool get hasPermission => _hasPermission;
+
+  Future<bool> checkAndRequestPermissions() async {
+    if (Platform.isAndroid) {
+      // 스토리지 권한 확인
+      var storageStatus = await Permission.storage.status;
+      if (!storageStatus.isGranted) {
+        storageStatus = await Permission.storage.request();
+      }
+
+      // 미디어 권한 확인
+      var audioStatus = await Permission.audio.status;
+      if (!audioStatus.isGranted) {
+        audioStatus = await Permission.audio.request();
+      }
+
+      _hasPermission = storageStatus.isGranted || audioStatus.isGranted;
+      print('Permission status - Storage: ${storageStatus.isGranted}, Audio: ${audioStatus.isGranted}');
+      return _hasPermission;
+    }
+    return true;
+  }
+}
+
+Future<bool> checkPermissions() async {
+  if (Platform.isAndroid) {
+    // Android API 레벨 확인
+    if (await Permission.storage.request().isGranted) {
+      return true;
+    }
+
+    // storage 권한이 없다면 audio 권한 요청
+    final audioStatus = await Permission.audio.request();
+    print('Audio permission status: $audioStatus');
+    return audioStatus.isGranted;
+  }
+  return true;
+}
+
+Future<bool> requestPermissions() async {
+  if (Platform.isAndroid) {
+    // 먼저 storage 권한 시도
+    var storageStatus = await Permission.storage.request();
+    if (storageStatus.isGranted) {
+      print('Storage permission granted');
+      return true;
+    }
+
+    // storage 권한이 거부되면 audio 권한 시도
+    final audioStatus = await Permission.audio.request();
+    print('Audio permission status: $audioStatus');
+    return audioStatus.isGranted;
+  }
+  return true;
 }
 
 class SoundEffect {
@@ -75,7 +147,8 @@ class SoundEffectHomePage extends StatefulWidget {
   _SoundEffectHomePageState createState() => _SoundEffectHomePageState();
 }
 
-class _SoundEffectHomePageState extends State<SoundEffectHomePage> with SingleTickerProviderStateMixin {
+class _SoundEffectHomePageState extends State<SoundEffectHomePage>
+    with TickerProviderStateMixin {
   List<SoundEffect> sounds = [];
   int gridColumns = 2;  // 기본값 2
   List<String> tabs = ['All', 'Tab 1', 'Tab 2', 'Tab 3', 'Tab 4'];
@@ -167,8 +240,16 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage> with SingleTi
           await audioPlayer.play(DeviceFileSource(sound.path!));
         }
       }
+
       setState(() {
         currentlyPlayingSoundId = sound.id;
+      });
+
+      // 새로 추가: 재생 완료 시 상태 초기화
+      audioPlayer.onPlayerComplete.listen((_) {
+        setState(() {
+          currentlyPlayingSoundId = null;
+        });
       });
     } catch (e) {
       print('Error playing sound: $e');
@@ -412,6 +493,19 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage> with SingleTi
 
   @override
   Widget build(BuildContext context) {
+    return MaterialApp(
+        title: 'Sound Effect App',
+        theme: ThemeData(
+        primarySwatch: Colors.teal,
+        visualDensity: VisualDensity.adaptivePlatformDensity,
+        brightness: Brightness.light,
+    ),
+    home: FutureBuilder<bool>(  // 타입 명시
+    future: checkPermissions(),
+    builder: (context, AsyncSnapshot<bool> snapshot) {  // AsyncSnapshot 타입 명시
+    // 권한이 있거나 iOS인 경우 메인 화면 표시
+    if (snapshot.data == true || !Platform.isAndroid) {
+
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -644,6 +738,60 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage> with SingleTi
           ],
         ),
       ),
+    );
+    } else {
+    // 권한이 없는 경우 권한 요청 화면 표시
+    return Scaffold(
+    body: Center(
+    child: Column(
+    mainAxisAlignment: MainAxisAlignment.center,
+    children: [
+    Text(
+    '앱 사용을 위해 저장소 권한이 필요합니다',
+    style: TextStyle(fontSize: 16),
+    ),
+    SizedBox(height: 20),
+      ElevatedButton(
+        onPressed: () async {
+          final granted = await requestPermissions();
+          if (granted) {
+            if (context.mounted) {  // context 확인
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [Colors.teal.shade100, Colors.blue.shade100],
+                      ),
+                    ),
+                    child: SoundEffectHomePage(),
+                  ),
+                ),
+              );
+            }
+          } else {
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('권한이 필요합니다. 설정에서 권한을 허용해주세요.')),
+              );
+              openAppSettings();
+            }
+          }
+        },
+        child: Text('권한 설정하기'),
+      ),
+    ],
+    ),
+    ),
+    );
+    }
+
+    }
+
+    ),
     );
   }
 }
