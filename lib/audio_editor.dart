@@ -93,6 +93,15 @@ class _AudioEditorState extends State<AudioEditor> {
       }
 
       await _audioPlayer.setFilePath(_audioPath!);
+      // 끝부분 재생 제어를 위한 리스너 추가
+      _audioPlayer.positionStream.listen((position) {
+        if (position >= Duration(milliseconds: ((_endTime + 1) * 1000).toInt())) {
+          _audioPlayer.pause();
+          setState(() {
+            _isPlaying = false;
+          });
+        }
+      });
 
       // 끝 시간에 약간의 여유를 추가
       final endTime = _endTime + 1;  // 0.1초의 여유 추가
