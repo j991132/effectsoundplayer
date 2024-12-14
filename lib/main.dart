@@ -6,11 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:reorderable_grid/reorderable_grid.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:auto_size_text/auto_size_text.dart';
 import 'dart:convert';
 import 'package:wakelock/wakelock.dart';
+import 'package:flutter/material.dart';
 
 
 
@@ -156,13 +158,15 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage>
   late AudioPlayer audioPlayer;
   TextEditingController searchController = TextEditingController();
   String? currentlyPlayingSoundId;
-  List<Color> tabColors = [
+    List<Color> tabColors = [
     Colors.teal,
     Colors.blue,
     Colors.purple,
     Colors.orange,
     Colors.pink,
   ];
+  Offset? _longPressStartPosition;
+  bool _isDragging = false;
   @override
   void initState() {
     super.initState();
@@ -556,19 +560,26 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage>
                   direction: Axis.horizontal,
                   children: [
                     Expanded(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: tabColors[entry.key],
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        margin: EdgeInsets.symmetric(horizontal: 2, vertical: 4),
-                        padding: EdgeInsets.symmetric(vertical: 4),
-                        alignment: Alignment.center,
-                        child: Tab(
-                          child: Text(
-                            entry.value,
-                            style: TextStyle(color: Colors.black),
-                            overflow: TextOverflow.ellipsis,
+                      child: GestureDetector(
+                        onLongPress: () {
+                          if (entry.key != 0) {
+                            editTab(entry.key);
+                          }
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: tabColors[entry.key],
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          margin: EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+                          padding: EdgeInsets.symmetric(vertical: 4),
+                          alignment: Alignment.center,
+                          child: Tab(
+                            child: Text(
+                              entry.value,
+                              style: TextStyle(color: Colors.black),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                         ),
                       ),
@@ -612,85 +623,117 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage>
                 Expanded(
                   child: filteredSounds.isEmpty
                       ? Center(child: Text('No sounds in this tab'))
-                      : GridView.builder(
-                    padding: EdgeInsets.all(8),
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: gridColumns,
-                      childAspectRatio: 1,
-                      crossAxisSpacing: 10,
-                      mainAxisSpacing: 10,
-                    ),
-                    itemCount: filteredSounds.length,
-                    itemBuilder: (context, soundIndex) {
-                      final sound = filteredSounds[soundIndex];
-                      final isPlaying = currentlyPlayingSoundId == sound.id;
-                      return AnimatedContainer(
-                        duration: Duration(milliseconds: 300),
-                        curve: Curves.easeInOut,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: isPlaying
-                                ? [Colors.teal.shade300, Colors.blue.shade300]
-                                : [Colors.white, Colors.grey.shade100],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          borderRadius: BorderRadius.circular(15),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.grey.withOpacity(0.5),
-                              spreadRadius: isPlaying ? 3 : 1,
-                              blurRadius: isPlaying ? 7 : 3,
-                              offset: Offset(0, 3),
-                            ),
-                          ],
-                        ),
-                        child: Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: () => playSound(sound),
-                            onLongPress: () => _showSoundOptions(sound),
-                            borderRadius: BorderRadius.circular(15),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Expanded(
-                                  flex: 3,
-                                  child: FittedBox(
-                                    fit: BoxFit.contain,
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(8.0),
-                                      child: Icon(
-                                        isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                                        color: isPlaying ? Colors.white : tabColors[index],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                Expanded(
-                                  flex: 1,
+                      : CustomScrollView(
+                    slivers: <Widget>[
+                      SliverReorderableList(
+                        onReorder: (oldIndex, newIndex) {
+                          setState(() {
+                            if (oldIndex < newIndex) {
+                              newIndex -= 1;
+                            }
+                            final item = filteredSounds.removeAt(oldIndex);
+                            filteredSounds.insert(newIndex, item);
+                            saveSounds();
+                          });
+                        },
+                        itemCount: ((filteredSounds.length + gridColumns - 1) ~/ gridColumns),
+                        itemBuilder: (context, index) {
+                          return ReorderableDelayedDragStartListener(
+                            key: ValueKey('row_$index'),
+                            index: index,
+                            child: Row(
+                              children: List.generate(gridColumns, (gridIndex) {
+                                final soundIndex = index * gridColumns + gridIndex;
+                                if (soundIndex >= filteredSounds.length) {
+                                  return SizedBox(
+                                    width: MediaQuery.of(context).size.width / gridColumns,
+                                  );
+                                }
+                                final sound = filteredSounds[soundIndex];
+                                final isPlaying = currentlyPlayingSoundId == sound.id;
+                                return SizedBox(
+                                  width: MediaQuery.of(context).size.width / gridColumns,
                                   child: Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                                    child: AutoSizeText(
-                                      sound.name,
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: isPlaying ? Colors.white : Colors.black87,
+                                    padding: const EdgeInsets.all(5.0),
+                                    child: GestureDetector(
+                                      onLongPress: () => _showSoundOptions(sound),
+                                      child: AnimatedContainer(
+                                        duration: Duration(milliseconds: 300),
+                                        curve: Curves.easeInOut,
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            colors: isPlaying
+                                                ? [Colors.teal.shade300, Colors.blue.shade300]
+                                                : [Colors.white, Colors.grey.shade100],
+                                            begin: Alignment.topLeft,
+                                            end: Alignment.bottomRight,
+                                          ),
+                                          borderRadius: BorderRadius.circular(15),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.grey.withOpacity(0.5),
+                                              spreadRadius: isPlaying ? 3 : 1,
+                                              blurRadius: isPlaying ? 7 : 3,
+                                              offset: Offset(0, 3),
+                                            ),
+                                          ],
+                                        ),
+                                        child: Material(
+                                          color: Colors.transparent,
+                                          child: InkWell(
+                                            onTap: () => playSound(sound),
+                                            borderRadius: BorderRadius.circular(15),
+                                            child: AspectRatio(
+                                              aspectRatio: 1,
+                                              child: Column(
+                                                mainAxisAlignment: MainAxisAlignment.center,
+                                                children: [
+                                                  Expanded(
+                                                    flex: 3,
+                                                    child: FittedBox(
+                                                      fit: BoxFit.contain,
+                                                      child: Padding(
+                                                        padding: const EdgeInsets.all(8.0),
+                                                        child: Icon(
+                                                          isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                                                          color: isPlaying ? Colors.white : tabColors[_tabController.index],
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  Expanded(
+                                                    flex: 1,
+                                                    child: Padding(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                                                      child: AutoSizeText(
+                                                        sound.name,
+                                                        textAlign: TextAlign.center,
+                                                        style: TextStyle(
+                                                          fontWeight: FontWeight.bold,
+                                                          color: isPlaying ? Colors.white : Colors.black87,
+                                                        ),
+                                                        maxLines: 1,
+                                                        minFontSize: 8,
+                                                        maxFontSize: 14,
+                                                        overflow: TextOverflow.ellipsis,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
                                       ),
-                                      maxLines: 1,
-                                      minFontSize: 8,
-                                      maxFontSize: 14,
-                                      overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
-                                ),
-                              ],
+                                );
+                              }),
                             ),
-                          ),
-                        ),
-                      );
-                    },
+                          );
+                        },
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -740,58 +783,55 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage>
       ),
     );
     } else {
-    // 권한이 없는 경우 권한 요청 화면 표시
-    return Scaffold(
-    body: Center(
-    child: Column(
-    mainAxisAlignment: MainAxisAlignment.center,
-    children: [
-    Text(
-    '앱 사용을 위해 저장소 권한이 필요합니다',
-    style: TextStyle(fontSize: 16),
-    ),
-    SizedBox(height: 20),
-      ElevatedButton(
-        onPressed: () async {
-          final granted = await requestPermissions();
-          if (granted) {
-            if (context.mounted) {  // context 확인
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Colors.teal.shade100, Colors.blue.shade100],
-                      ),
-                    ),
-                    child: SoundEffectHomePage(),
-                  ),
-                ),
-              );
-            }
-          } else {
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('권한이 필요합니다. 설정에서 권한을 허용해주세요.')),
-              );
-              openAppSettings();
-            }
-          }
-        },
-        child: Text('권한 설정하기'),
-      ),
-    ],
-    ),
-    ),
-    );
+// 권한이 없는 경우 권한 요청 화면 표시
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                '앱 사용을 위해 저장소 권한이 필요합니다',
+                style: TextStyle(fontSize: 16),
+              ),
+              SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: () async {
+                  final granted = await requestPermissions();
+                  if (granted) {
+                    if (context.mounted) {
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [Colors.teal.shade100, Colors.blue.shade100],
+                              ),
+                            ),
+                            child: SoundEffectHomePage(),
+                          ),
+                        ),
+                      );
+                    }
+                  } else {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('권한이 필요합니다. 설정에서 권한을 허용해주세요.')),
+                      );
+                      openAppSettings();
+                    }
+                  }
+                },
+                child: Text('권한 설정하기'),
+              ),
+            ],
+          ),
+        ),
+      );
     }
-
-    }
-
-    ),
+    }),
     );
   }
 }

@@ -46,6 +46,8 @@ dependencies:
   wakelock: ^0.6.2
   permission_handler: ^10.4.3
   just_audio: ^0.9.34
+  reorderable_grid: ^1.0.4
+
 
 
 
