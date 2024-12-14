@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 import 'package:effectsoundplayer/audio_editor.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -167,6 +169,8 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage>
   ];
   Offset? _longPressStartPosition;
   bool _isDragging = false;
+  Timer? _longPressTimer;
+
   @override
   void initState() {
     super.initState();
@@ -180,6 +184,7 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage>
     _tabController.dispose();
     audioPlayer.dispose();
     searchController.dispose();
+    _longPressTimer?.cancel();
     super.dispose();
   }
 
@@ -621,125 +626,170 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage>
                   ),
                 ),
                 Expanded(
-                  child: filteredSounds.isEmpty
-                      ? Center(child: Text('No sounds in this tab'))
-                      : CustomScrollView(
-                    slivers: <Widget>[
-                      SliverReorderableList(
-                        onReorder: (oldIndex, newIndex) {
-                          setState(() {
-                            if (oldIndex < newIndex) {
-                              newIndex -= 1;
-                            }
-                            final item = filteredSounds.removeAt(oldIndex);
-                            filteredSounds.insert(newIndex, item);
-                            saveSounds();
-                          });
-                        },
-                        itemCount: ((filteredSounds.length + gridColumns - 1) ~/ gridColumns),
-                        itemBuilder: (context, index) {
-                          return ReorderableDelayedDragStartListener(
-                            key: ValueKey('row_$index'),
-                            index: index,
-                            child: Row(
-                              children: List.generate(gridColumns, (gridIndex) {
-                                final soundIndex = index * gridColumns + gridIndex;
-                                if (soundIndex >= filteredSounds.length) {
-                                  return SizedBox(
-                                    width: MediaQuery.of(context).size.width / gridColumns,
-                                  );
-                                }
-                                final sound = filteredSounds[soundIndex];
-                                final isPlaying = currentlyPlayingSoundId == sound.id;
-                                return SizedBox(
-                                  width: MediaQuery.of(context).size.width / gridColumns,
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(5.0),
-                                    child: GestureDetector(
-                                      onLongPress: () => _showSoundOptions(sound),
-                                      child: AnimatedContainer(
-                                        duration: Duration(milliseconds: 300),
-                                        curve: Curves.easeInOut,
-                                        decoration: BoxDecoration(
-                                          gradient: LinearGradient(
-                                            colors: isPlaying
-                                                ? [Colors.teal.shade300, Colors.blue.shade300]
-                                                : [Colors.white, Colors.grey.shade100],
-                                            begin: Alignment.topLeft,
-                                            end: Alignment.bottomRight,
-                                          ),
-                                          borderRadius: BorderRadius.circular(15),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.grey.withOpacity(0.5),
-                                              spreadRadius: isPlaying ? 3 : 1,
-                                              blurRadius: isPlaying ? 7 : 3,
-                                              offset: Offset(0, 3),
-                                            ),
-                                          ],
-                                        ),
-                                        child: Material(
-                                          color: Colors.transparent,
-                                          child: InkWell(
-                                            onTap: () => playSound(sound),
-                                            borderRadius: BorderRadius.circular(15),
-                                            child: AspectRatio(
-                                              aspectRatio: 1,
-                                              child: Column(
-                                                mainAxisAlignment: MainAxisAlignment.center,
-                                                children: [
-                                                  Expanded(
-                                                    flex: 3,
-                                                    child: FittedBox(
-                                                      fit: BoxFit.contain,
-                                                      child: Padding(
-                                                        padding: const EdgeInsets.all(8.0),
-                                                        child: Icon(
-                                                          isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                                                          color: isPlaying ? Colors.white : tabColors[_tabController.index],
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  Expanded(
-                                                    flex: 1,
-                                                    child: Padding(
-                                                      padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                                                      child: AutoSizeText(
-                                                        sound.name,
-                                                        textAlign: TextAlign.center,
-                                                        style: TextStyle(
-                                                          fontWeight: FontWeight.bold,
-                                                          color: isPlaying ? Colors.white : Colors.black87,
-                                                        ),
-                                                        maxLines: 1,
-                                                        minFontSize: 8,
-                                                        maxFontSize: 14,
-                                                        overflow: TextOverflow.ellipsis,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              }),
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
+            child: filteredSounds.isEmpty
+            ? Center(child: Text('No sounds in this tab'))
+                : GridView.builder(
+            padding: EdgeInsets.all(8),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: gridColumns,
+            childAspectRatio: 1,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+            ),
+            itemCount: filteredSounds.length,
+            itemBuilder: (context, index) {
+            final sound = filteredSounds[index];
+            final isPlaying = currentlyPlayingSoundId == sound.id;
+
+            return Draggable<int>(
+            key: ValueKey(sound.id),
+            data: index,
+            feedback: Material(
+            elevation: 8.0,
+            borderRadius: BorderRadius.circular(15),
+            child: Container(
+            width: MediaQuery.of(context).size.width / gridColumns - 10,
+            height: MediaQuery.of(context).size.width / gridColumns - 10,
+            decoration: BoxDecoration(
+            gradient: LinearGradient(
+            colors: [Colors.teal.shade300, Colors.blue.shade300],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(15),
+            ),
+            child: Center(
+            child: Text(
+            sound.name,
+            style: TextStyle(color: Colors.white),
+            textAlign: TextAlign.center,
+            ),
+            ),
+            ),
+            ),
+            childWhenDragging: Container(
+            decoration: BoxDecoration(
+            color: Colors.grey.withOpacity(0.2),
+            borderRadius: BorderRadius.circular(15),
+            ),
+            ),
+            onDragStarted: () {
+            setState(() => _isDragging = true);
+            },
+            onDragEnd: (details) {
+            setState(() => _isDragging = false);
+            },
+            child: DragTarget<int>(
+              onWillAccept: (data) => data != null && data != index,  // 같은 위치가 아닐 때만 허용
+              onAccept: (oldIndex) {
+                setState(() {
+                  // 드래그한 아이템을 리스트에서 제거하고 새 위치에 삽입
+                  final movedItem = filteredSounds.removeAt(oldIndex);
+                  if (oldIndex < index) {
+                    // 이전 위치에서 드래그할 경우, 제거된 아이템으로 인해 인덱스가 하나씩 앞으로 당겨짐
+                    filteredSounds.insert(index - 1, movedItem);
+                  } else {
+                    // 다음 위치로 드래그할 경우
+                    filteredSounds.insert(index, movedItem);
+                  }
+                  saveSounds();  // 변경된 순서 저장
+                });
+              },
+              builder: (context, candidateData, rejectedData) {
+                return Container(
+                    decoration: BoxDecoration(
+                    // 드래그된 아이템이 올라갔을 때 시각적 피드백
+                    color: candidateData.isNotEmpty ? Colors.grey.withOpacity(0.2) : Colors.transparent,
+                borderRadius: BorderRadius.circular(15),
                 ),
-              ],
-            );
-          }),
-        ),
+                child: GestureDetector(
+            onLongPress: () {
+            if (!_isDragging) {
+            _showSoundOptions(sound);
+            }
+            },
+            onTap: () => playSound(sound),
+            child: AnimatedContainer(
+            duration: Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            decoration: BoxDecoration(
+            gradient: LinearGradient(
+            colors: isPlaying
+            ? [Colors.teal.shade300, Colors.blue.shade300]
+                : [Colors.white, Colors.grey.shade100],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(15),
+            boxShadow: [
+            BoxShadow(
+            color: Colors.grey.withOpacity(0.5),
+            spreadRadius: isPlaying ? 3 : 1,
+            blurRadius: isPlaying ? 7 : 3,
+            offset: Offset(0, 3),
+            ),
+            ],
+            ),
+            child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+            onTap: () => playSound(sound),
+            borderRadius: BorderRadius.circular(15),
+            child: AspectRatio(
+            aspectRatio: 1,
+            child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+            Expanded(
+            flex: 3,
+            child: FittedBox(
+            fit: BoxFit.contain,
+            child: Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Icon(
+            isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+            color: isPlaying ? Colors.white : tabColors[_tabController.index],
+            ),
+            ),
+            ),
+            ),
+            Expanded(
+            flex: 1,
+            child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: AutoSizeText(
+            sound.name,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: isPlaying ? Colors.white : Colors.black87,
+            ),
+            maxLines: 1,
+            minFontSize: 8,
+            maxFontSize: 14,
+            overflow: TextOverflow.ellipsis,
+            ), // AutoSizeText 끝
+            ), // Padding 끝
+            ), // Expanded flex:1 끝
+            ], // Column의 children 배열 끝
+            ), // Column 끝
+            ), // AspectRatio 끝
+            ), // InkWell 끝
+            ), // Material 끝
+            ), // AnimatedContainer 끝
+                )
+                ); // GestureDetector 끝
+            },
+            ),  // Padding 끝
+    );  // SizedBox 반환값 끝
+    },  // List.generate의 각 아이템 생성 함수 끝
+    ),  // Row 끝
+    ),  // Draggable 끝
+    ]
+            );  // itemBuilder 반환값 끝
+    },  // itemBuilder 끝
+    ),  // GridView.builder 끝
+    ),
         floatingActionButton: Column(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
