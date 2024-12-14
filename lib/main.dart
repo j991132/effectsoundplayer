@@ -274,7 +274,11 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage>
     );
 
     if (result != null) {
-      String name = await _showNameInputDialog();
+      // 파일명에서 확장자 제거
+      String fileName = result.files.single.name;
+      String nameWithoutExtension = fileName.substring(0, fileName.lastIndexOf('.'));
+
+      String name = await _showNameInputDialog(initialValue: nameWithoutExtension);
       if (name.isNotEmpty) {
         final newSound = SoundEffect(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -391,17 +395,19 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage>
     await showDialog(
       context: context,
       builder: (context) {
+        final controller = TextEditingController(text: initialValue);
         return AlertDialog(
           title: Text(initialValue == null ? 'Enter name' : 'Edit name'),
           content: TextField(
             onChanged: (value) {
               name = value;
             },
+            controller: controller,  // controller 사용
             decoration: InputDecoration(
               hintText: 'Name',
               border: OutlineInputBorder(),
             ),
-            controller: TextEditingController(text: initialValue),
+
           ),
           actions: [
             TextButton(

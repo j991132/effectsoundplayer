@@ -127,6 +127,10 @@ class _AudioEditorState extends State<AudioEditor> {
   // 이름 입력 다이얼로그 추가
   Future<String?> _showNameInputDialog() async {
     String? name;
+    String originalName = _audioPath != null ?
+    _audioPath!.split('/').last.split('.').first : // 파일경로에서 파일명만 추출하고 확장자 제거
+    'sound';  // 기본값
+
     await showDialog(
       context: context,
       barrierDismissible: false,
@@ -135,6 +139,7 @@ class _AudioEditorState extends State<AudioEditor> {
           title: Text('Enter sound effect name'),
           content: TextField(
             autofocus: true,
+            controller: TextEditingController(text: originalName),  // 초기값 설정
             decoration: InputDecoration(hintText: "Enter name"),
             onChanged: (value) => name = value,
           ),
@@ -156,7 +161,7 @@ class _AudioEditorState extends State<AudioEditor> {
         );
       },
     );
-    return name;
+    return name ?? originalName;
   }
 
   Future<void> _saveEditedAudio() async {
