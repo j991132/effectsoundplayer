@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter_ffmpeg/flutter_ffmpeg.dart';
+// import 'package:flutter_ffmpeg/flutter_ffmpeg.dart';
+import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -48,26 +50,56 @@ class _AudioEditorState extends State<AudioEditor> {
   Future<void> _pickAudio() async {
     try {
       final result = await FilePicker.platform.pickFiles(
-        type: FileType.audio,
+        type: FileType.custom,
+        allowedExtensions: ['mp3', 'wav', 'aac', 'm4a', 'ogg', 'flac', 'opus', 'm4b', 'wma', 'amr'],
       );
 
       if (result != null) {
+        final file = result.files.single;
+        final extension = file.extension?.toLowerCase() ?? '';
+        const allowedExtensions = ['mp3', 'wav', 'aac', 'm4a', 'ogg', 'flac', 'opus', 'm4b', 'wma', 'amr'];
+        if (extension.isNotEmpty && !allowedExtensions.contains(extension)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('오디오 파일만 선택할 수 있습니다.')),
+          );
+          return;
+        }
+
         setState(() {
           _isLoading = true;
         });
 
-        _audioPath = result.files.single.path;
-        _audioName = result.files.single.name;
+        String? localPath = file.path;
 
-        // 오디오 파일 로드
-        await _audioPlayer.setFilePath(_audioPath!);
-        final duration = _audioPlayer.duration;
+        if (file.path != null) {
+          try {
+            final dir = await getTemporaryDirectory();
+            final savedPath = '${dir.path}/edit_${DateTime.now().millisecondsSinceEpoch}_${file.name}';
+            await file.xFile.saveTo(savedPath);
+            localPath = savedPath;
+          } catch (e) {
+            print('Error copying picked file for editing: $e');
+          }
+        }
 
-        setState(() {
-          _maxDuration = duration?.inSeconds.toDouble() ?? 30;
-          _endTime = _maxDuration.clamp(0, 30);
-          _isLoading = false;
-        });
+        _audioPath = localPath;
+        _audioName = file.name;
+
+        if (_audioPath != null) {
+          // 오디오 파일 로드
+          await _audioPlayer.setFilePath(_audioPath!);
+          final duration = _audioPlayer.duration;
+
+          setState(() {
+            _maxDuration = duration?.inSeconds.toDouble() ?? 30;
+            _endTime = _maxDuration.clamp(0, 30);
+            _isLoading = false;
+          });
+        } else {
+          setState(() {
+            _isLoading = false;
+          });
+        }
       }
     } catch (e) {
       print('Error picking audio: $e');
@@ -188,6 +220,28 @@ class _AudioEditorState extends State<AudioEditor> {
       final tempWavPath = '${dir.path}/temp_${DateTime.now().millisecondsSinceEpoch}.wav';
       final editedPath = '${dir.path}/edited_${DateTime.now().millisecondsSinceEpoch}.aac';
 
+      // 1. 기존 FlutterFFmpeg 객체 생성 코드는 더 이상 필요 없으므로 삭제합니다.
+// final FlutterFFmpeg flutterFFmpeg = FlutterFFmpeg();
+
+// 2. WAV 변환
+      var session1 = await FFmpegKit.execute(
+          '-i "$_audioPath" -acodec pcm_s16le "$tempWavPath"'
+      );
+      var returnCode1 = await session1.getReturnCode();
+
+// ReturnCode.isSuccess()를 사용하여 성공 여부를 확인합니다.
+      if (!ReturnCode.isSuccess(returnCode1)) throw 'Failed to convert to WAV';
+
+// 3. 편집 및 AAC 변환
+      var session2 = await FFmpegKit.execute(
+          '-i "$tempWavPath" -ss ${_startTime.toStringAsFixed(3)} -t ${(_endTime - _startTime + 1).toStringAsFixed(3)} '
+              '-c:a aac -b:a 192k -avoid_negative_ts make_zero "$editedPath"'
+      );
+      var returnCode2 = await session2.getReturnCode();
+
+      if (!ReturnCode.isSuccess(returnCode2)) throw 'Failed to edit and convert to AAC';
+
+/*
       // FFmpeg 명령어
       final FlutterFFmpeg flutterFFmpeg = FlutterFFmpeg();
 
@@ -203,7 +257,7 @@ class _AudioEditorState extends State<AudioEditor> {
           '-i "$tempWavPath" -ss ${_startTime.toStringAsFixed(3)} -t ${(_endTime - _startTime + 1).toStringAsFixed(3)} '
               '-c:a aac -b:a 192k -avoid_negative_ts make_zero "$editedPath"'
       );
-
+*/
       // 임시 파일 정리
       try {
         await File(tempWavPath).delete();
@@ -211,7 +265,7 @@ class _AudioEditorState extends State<AudioEditor> {
         print('Error deleting temp file: $e');
       }
 
-      if (rc == 0) {
+      if (ReturnCode.isSuccess(returnCode2)) {
         widget.onSoundAdded(name, editedPath);
         Navigator.pop(context);
       } else {

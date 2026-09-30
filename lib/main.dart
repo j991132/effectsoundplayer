@@ -7,13 +7,14 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:reorderable_grid/reorderable_grid.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:auto_size_text/auto_size_text.dart';
 import 'dart:convert';
-import 'package:wakelock/wakelock.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:flutter/material.dart';
 
 
@@ -27,7 +28,7 @@ Future<void> main() async {
   }
   // 권한 체크
   await PermissionManager().checkAndRequestPermissions();
-  Wakelock.enable();
+  WakelockPlus.enable();
   runApp(MyApp());
 }
 
@@ -270,21 +271,45 @@ class _SoundEffectHomePageState extends State<SoundEffectHomePage>
 
   Future<void> addSound() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.audio,
+      type: FileType.custom,
+      allowedExtensions: ['mp3', 'wav', 'aac', 'm4a', 'ogg', 'flac', 'opus', 'm4b', 'wma', 'amr'],
     );
 
     if (result != null) {
+      final file = result.files.single;
+      final extension = file.extension?.toLowerCase() ?? '';
+      const allowedExtensions = ['mp3', 'wav', 'aac', 'm4a', 'ogg', 'flac', 'opus', 'm4b', 'wma', 'amr'];
+      if (extension.isNotEmpty && !allowedExtensions.contains(extension)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('오디오 파일만 선택할 수 있습니다.')),
+        );
+        return;
+      }
       // 파일명에서 확장자 제거
-      String fileName = result.files.single.name;
-      String nameWithoutExtension = fileName.substring(0, fileName.lastIndexOf('.'));
+      String fileName = file.name;
+      String nameWithoutExtension = fileName.contains('.')
+          ? fileName.substring(0, fileName.lastIndexOf('.'))
+          : fileName;
 
       String name = await _showNameInputDialog(initialValue: nameWithoutExtension);
       if (name.isNotEmpty) {
+        String? localPath = file.path;
+        if (!kIsWeb && file.path != null) {
+          try {
+            final appDir = await getApplicationDocumentsDirectory();
+            final savedPath = '${appDir.path}/${DateTime.now().millisecondsSinceEpoch}_${file.name}';
+            await file.xFile.saveTo(savedPath);
+            localPath = savedPath;
+          } catch (e) {
+            print('Error copying picked file: $e');
+          }
+        }
+
         final newSound = SoundEffect(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           name: name,
-          path: kIsWeb ? null : result.files.single.path,
-          bytes: kIsWeb ? result.files.single.bytes : null,
+          path: kIsWeb ? null : localPath,
+          bytes: kIsWeb ? file.bytes : null,
           tabIndex: _tabController.index,
         );
         setState(() {

@@ -4,6 +4,7 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_windows
+  ffmpeg_kit_flutter_new
   permission_handler_windows
   share_plus
   url_launcher_windows

@@ -53,5 +53,18 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- 구글 드라이브 및 외부 문서 프로바이더(SAF) 접근을 위한 패키지 공개성 설정 (targetSdk 30+ 필수) -->
+        <intent>
+            <action android:name="android.intent.action.GET_CONTENT" />
+            <data android:mimeType="*/*" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.OPEN_DOCUMENT" />
+            <data android:mimeType="*/*" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.OPEN_DOCUMENT_TREE" />
+        </intent>
+        <package android:name="com.google.android.apps.docs" />
     </queries>
 </manifest>

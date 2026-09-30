@@ -2,6 +2,15 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+
+    }
+    // 👇 아래 코드를 추가해 주세요 (모든 플러그인의 코틀린 버전을 1.9.24로 강제 통일)
+    configurations.all {
+        resolutionStrategy.eachDependency { DependencyResolveDetails details ->
+            if (details.requested.group == 'org.jetbrains.kotlin') {
+                details.useVersion "1.9.24"
+            }
+        }
     }
 }
 
@@ -17,7 +26,17 @@ tasks.register("clean", Delete) {
     delete rootProject.buildDir
 }
 buildscript {
-    ext.kotlin_version = '1.6.0'  // 이 줄을 수정
+    ext.kotlin_version = '1.9.24'  // 이 줄을 수정
+    repositories {
+        google()       // 추가
+        mavenCentral() // 추가
+
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.1.0' // 최신 버전으로 업데이트
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+        classpath "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+    }
 
 }
 subprojects {
